@@ -37,6 +37,14 @@
 - Transformer/advanced rank blend: `0.778598`.
 - Best blend weights: 75% Transformer and 25% advanced LightGBM.
 
+## Stage 5: Deep Learning Ensemble
+
+- Hybrid Transformer with the full credit history and 321 aggregate features.
+- Hybrid validation ROC-AUC: `0.773656`.
+- Three sequence Transformer seeds: `42`, `137`, and `2026`.
+- Three-seed rank ensemble ROC-AUC: `0.781449`.
+- Final seed/hybrid/advanced ensemble ROC-AUC: `0.782113`.
+
 ## Validation Convention
 
 The main validation fold contains clients satisfying `id % 10 == 0`.

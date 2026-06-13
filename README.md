@@ -69,6 +69,13 @@ python blend_advanced.py
 python blend_neural.py
 ```
 
+Hybrid-модель и ансамбль нескольких Transformer seed:
+
+```powershell
+python blend_hybrid.py
+python blend_multiseed.py
+```
+
 Результаты сохраняются в `artifacts/`:
 
 - `metrics.json` — локальные метрики;

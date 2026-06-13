@@ -66,8 +66,23 @@ neural_artifacts/submission_transformer.csv
 neural_artifacts/transformer_validation.npz
 ```
 
+Для дополнительных seed:
+
+```bash
+python3 neural.py train --seed 137
+python3 neural.py predict --seed 137
+```
+
 Если возникнет CUDA out of memory:
 
 ```bash
 python3 neural.py train --batch-size 256
+```
+
+Hybrid Transformer с полной историей и advanced-агрегатами:
+
+```bash
+python3 hybrid.py prepare
+python3 hybrid.py train --seed 42
+python3 hybrid.py predict --seed 42
 ```

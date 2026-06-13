@@ -406,6 +406,8 @@ def train(args: argparse.Namespace) -> None:
     )
     best_auc = -1.0
     patience_left = args.patience
+    checkpoint_path = NEURAL_DIR / f"transformer_seed{args.seed}.pt"
+    validation_path = NEURAL_DIR / f"transformer_validation_seed{args.seed}.npz"
 
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -468,10 +470,10 @@ def train(args: argparse.Namespace) -> None:
                     "args": vars(args),
                     "metadata": metadata,
                 },
-                NEURAL_DIR / "transformer_best.pt",
+                checkpoint_path,
             )
             np.savez(
-                NEURAL_DIR / "transformer_validation.npz",
+                validation_path,
                 id=validation_ids,
                 target=validation_targets,
                 prediction=validation_predictions,
@@ -492,7 +494,7 @@ def predict(args: argparse.Namespace) -> None:
         raise RuntimeError("CUDA is unavailable; check nvidia-smi and PyTorch")
     device = torch.device("cuda")
     checkpoint = torch.load(
-        NEURAL_DIR / "transformer_best.pt",
+        NEURAL_DIR / f"transformer_seed{args.seed}.pt",
         map_location=device,
         weights_only=False,
     )
@@ -535,7 +537,7 @@ def predict(args: argparse.Namespace) -> None:
         gc.collect()
         print(f"test prediction shard {shard_number}/{metadata['partitions']}")
 
-    output = NEURAL_DIR / "submission_transformer.csv"
+    output = NEURAL_DIR / f"submission_transformer_seed{args.seed}.csv"
     with (
         open(SAMPLE_SUBMISSION, encoding="utf-8-sig", newline="") as source,
         output.open("w", encoding="ascii", newline="\n") as destination,

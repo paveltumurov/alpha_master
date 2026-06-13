@@ -33,6 +33,9 @@
 - CUDA FP16 training intended for an NVIDIA Tesla P100 16 GB.
 - Sharded memory-mapped datasets for a 28 GB RAM server.
 - Validation predictions are saved for blending with tree models.
+- Transformer validation ROC-AUC: `0.776521`.
+- Transformer/advanced rank blend: `0.778598`.
+- Best blend weights: 75% Transformer and 25% advanced LightGBM.
 
 ## Validation Convention
 

@@ -63,6 +63,12 @@ python blend_advanced.py
 Нейросетевая модель последовательности кредитов для сервера с NVIDIA P100
 описана в `SERVER.md` и запускается через `neural.py`.
 
+После загрузки neural submission и validation predictions:
+
+```powershell
+python blend_neural.py
+```
+
 Результаты сохраняются в `artifacts/`:
 
 - `metrics.json` — локальные метрики;

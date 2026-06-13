@@ -1,0 +1,4 @@
+numpy
+polars==1.41.2
+pyarrow
+scikit-learn

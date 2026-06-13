@@ -1,0 +1,28 @@
+# Source datasets and competition files
+*.parquet
+*.csv
+*.xlsx
+*.pdf
+
+# Generated models, databases, and experiment outputs
+artifacts/
+neural_artifacts/
+*.duckdb
+*.txt
+!requirements*.txt
+*.log
+*.npy
+*.npz
+*.pt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

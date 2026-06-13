@@ -363,7 +363,7 @@ def validate(
             shuffle=False,
             num_workers=args.workers,
             pin_memory=True,
-            persistent_workers=args.workers > 0,
+            persistent_workers=False,
         )
         for sequences, batch_lengths, targets in loader:
             sequences = sequences.to(device, non_blocking=True)
@@ -374,6 +374,8 @@ def validate(
                 torch.sigmoid(logits).float().cpu().numpy()
             )
             all_targets.append(targets.numpy())
+        del loader, x, ids, lengths, y
+        gc.collect()
     validation_ids = np.concatenate(all_ids)
     targets = np.concatenate(all_targets)
     predictions = np.concatenate(all_predictions)
@@ -424,7 +426,7 @@ def train(args: argparse.Namespace) -> None:
                 shuffle=True,
                 num_workers=args.workers,
                 pin_memory=True,
-                persistent_workers=args.workers > 0,
+                persistent_workers=False,
                 drop_last=True,
             )
             for sequences, batch_lengths, targets in loader:
@@ -442,6 +444,8 @@ def train(args: argparse.Namespace) -> None:
                 scaler.update()
                 running_loss += float(loss.detach()) * targets.size(0)
                 examples += targets.size(0)
+            del loader, dataset, x, ids, lengths, y
+            gc.collect()
             print(
                 f"\repoch {epoch}: shard {shard_number}/{len(paths)} "
                 f"loss={running_loss / max(examples, 1):.5f}",
@@ -513,7 +517,7 @@ def predict(args: argparse.Namespace) -> None:
             shuffle=False,
             num_workers=args.workers,
             pin_memory=True,
-            persistent_workers=args.workers > 0,
+            persistent_workers=False,
         )
         offset = 0
         for sequences, batch_lengths in loader:
@@ -527,6 +531,8 @@ def predict(args: argparse.Namespace) -> None:
                 zip(batch_ids.astype(int).tolist(), values.astype(float).tolist())
             )
             offset += values.size
+        del loader, x, ids, lengths
+        gc.collect()
         print(f"test prediction shard {shard_number}/{metadata['partitions']}")
 
     output = NEURAL_DIR / "submission_transformer.csv"

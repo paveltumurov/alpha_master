@@ -55,6 +55,7 @@
 - Local one-shard A/B: `0.737239` advanced vs `0.737711` combined.
 - Full-data LightGBM ROC-AUC: `0.767786` at iteration `1877`.
 - Engineered ensemble ROC-AUC: `0.782217`.
+- Engineered ensemble public leaderboard ROC-AUC: `0.778326`.
 - Final weights: 75% three-seed Transformer, 10% hybrid, and 15%
   engineered LightGBM.
 

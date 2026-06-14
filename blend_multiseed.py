@@ -10,8 +10,15 @@ from blend import rank_percentile, validation_prediction, write_compact_submissi
 
 def load_validation(path):
     data = np.load(path)
-    order = np.argsort(data["id"], kind="mergesort")
-    return data["id"][order], data["target"][order], data["prediction"][order]
+    id_key = "id" if "id" in data else "ids"
+    target_key = "target" if "target" in data else "targets"
+    prediction_key = "prediction" if "prediction" in data else "predictions"
+    order = np.argsort(data[id_key], kind="mergesort")
+    return (
+        data[id_key][order],
+        data[target_key][order],
+        data[prediction_key][order],
+    )
 
 
 def main() -> None:
@@ -27,6 +34,9 @@ def main() -> None:
     hybrid_ids, hybrid_targets, hybrid_prediction = load_validation(
         ARTIFACTS / "hybrid_validation_seed42.npz"
     )
+    engineered_ids, engineered_targets, engineered_prediction = load_validation(
+        ARTIFACTS / "engineered_validation.npz"
+    )
     advanced_ids, advanced_prediction = validation_prediction(
         ARTIFACTS / "train_features_advanced.parquet",
         ARTIFACTS / "advanced_lgbm.txt",
@@ -35,6 +45,7 @@ def main() -> None:
         np.array_equal(ids42, ids137)
         and np.array_equal(ids42, ids2026)
         and np.array_equal(ids42, hybrid_ids)
+        and np.array_equal(ids42, engineered_ids)
         and np.array_equal(ids42, advanced_ids)
     ):
         raise ValueError("Validation ids differ")
@@ -42,6 +53,7 @@ def main() -> None:
         np.array_equal(targets, targets137)
         and np.array_equal(targets, targets2026)
         and np.array_equal(targets, hybrid_targets)
+        and np.array_equal(targets, engineered_targets)
     ):
         raise ValueError("Validation targets differ")
 
@@ -50,6 +62,7 @@ def main() -> None:
     rank2026 = rank_percentile(prediction2026)
     hybrid_rank = rank_percentile(hybrid_prediction)
     advanced_rank = rank_percentile(advanced_prediction)
+    engineered_rank = rank_percentile(engineered_prediction)
 
     seed_results = []
     for weight42 in np.arange(0.0, 1.001, 0.025):
@@ -80,27 +93,38 @@ def main() -> None:
 
     results = []
     for seed_weight in np.arange(0.40, 0.951, 0.025):
-        remaining = 1.0 - seed_weight
-        for hybrid_weight in np.arange(0.0, remaining + 0.001, 0.025):
-            advanced_weight = remaining - hybrid_weight
-            prediction = (
-                seed_weight * seed_rank
-                + hybrid_weight * hybrid_rank
-                + advanced_weight * advanced_rank
-            )
-            results.append(
-                (
-                    roc_auc_score(targets, prediction),
-                    float(seed_weight),
-                    float(hybrid_weight),
-                    float(advanced_weight),
+        non_seed_weight = 1.0 - seed_weight
+        for hybrid_weight in np.arange(0.0, non_seed_weight + 0.001, 0.025):
+            tree_weight = non_seed_weight - hybrid_weight
+            for advanced_weight in np.arange(0.0, tree_weight + 0.001, 0.025):
+                engineered_weight = tree_weight - advanced_weight
+                prediction = (
+                    seed_weight * seed_rank
+                    + hybrid_weight * hybrid_rank
+                    + advanced_weight * advanced_rank
+                    + engineered_weight * engineered_rank
                 )
-            )
+                results.append(
+                    (
+                        roc_auc_score(targets, prediction),
+                        float(seed_weight),
+                        float(hybrid_weight),
+                        float(advanced_weight),
+                        float(engineered_weight),
+                    )
+                )
     results.sort(reverse=True)
-    for auc, seed_weight, hybrid_weight, advanced_weight in results[:10]:
+    for (
+        auc,
+        seed_weight,
+        hybrid_weight,
+        advanced_weight,
+        engineered_weight,
+    ) in results[:10]:
         print(
             f"auc={auc:.8f} seeds={seed_weight:.3f} "
-            f"hybrid={hybrid_weight:.3f} advanced={advanced_weight:.3f}"
+            f"hybrid={hybrid_weight:.3f} advanced={advanced_weight:.3f} "
+            f"engineered={engineered_weight:.3f}"
         )
 
     sample_ids = pl.read_csv(
@@ -112,6 +136,7 @@ def main() -> None:
         "seed2026": ARTIFACTS / "submission_transformer_seed2026.csv",
         "hybrid": ARTIFACTS / "submission_hybrid_seed42.csv",
         "advanced": ARTIFACTS / "submission_advanced.csv",
+        "engineered": ARTIFACTS / "submission_engineered.csv",
     }
     test_ranks = {}
     for name, path in paths.items():
@@ -125,11 +150,18 @@ def main() -> None:
         + weight137 * test_ranks["seed137"]
         + weight2026 * test_ranks["seed2026"]
     )
-    best_auc, seed_weight, hybrid_weight, advanced_weight = results[0]
+    (
+        best_auc,
+        seed_weight,
+        hybrid_weight,
+        advanced_weight,
+        engineered_weight,
+    ) = results[0]
     prediction = (
         seed_weight * seed_test_rank
         + hybrid_weight * test_ranks["hybrid"]
         + advanced_weight * test_ranks["advanced"]
+        + engineered_weight * test_ranks["engineered"]
     )
     output = ARTIFACTS / "submission_multiseed_blend.csv"
     write_compact_submission(sample_ids, prediction, output)

@@ -85,6 +85,12 @@ def train(features_path: Path, model_path: Path) -> dict[str, float | int]:
         X[train_size:],
         num_iteration=model.best_iteration_,
     )[:, 1]
+    np.savez_compressed(
+        ARTIFACTS / "engineered_validation.npz",
+        ids=ids[train_size:],
+        targets=y[train_size:],
+        predictions=prediction,
+    )
     metrics: dict[str, float | int] = {
         "auc": float(roc_auc_score(y[train_size:], prediction)),
         "best_iteration": int(model.best_iteration_),

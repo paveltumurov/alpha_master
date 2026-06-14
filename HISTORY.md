@@ -59,6 +59,16 @@
 - Final weights: 75% three-seed Transformer, 10% hybrid, and 15%
   engineered LightGBM.
 
+## Stage 7: Alternative Models
+
+- GPU CatBoost on 473 engineered aggregate features: `0.763973`.
+- CatBoost received zero ensemble weight because its predictions were too
+  correlated with engineered LightGBM.
+- Bidirectional GRU with attention pooling and pairwise ranking loss.
+- GRU validation ROC-AUC: `0.777897`.
+- Transformer/GRU/hybrid/engineered ensemble ROC-AUC: `0.782957`.
+- Final GRU ensemble weight: 27.5%.
+
 ## Validation Convention
 
 The main validation fold contains clients satisfying `id % 10 == 0`.

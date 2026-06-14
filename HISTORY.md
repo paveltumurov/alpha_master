@@ -69,6 +69,15 @@
 - Transformer/GRU/hybrid/engineered ensemble ROC-AUC: `0.782957`.
 - Final GRU ensemble weight: 27.5%.
 
+## Stage 8: ID Time Prior
+
+- A centered rolling target-rate prior over the ordered `id` space.
+- Validation labels are excluded while constructing the validation prior.
+- Window width: `200000`; Bayesian smoothing strength: `20`.
+- Standalone prior ROC-AUC: `0.528191`.
+- Final ensemble ROC-AUC: `0.783245`.
+- Final time-prior weight: 3.4%.
+
 ## Validation Convention
 
 The main validation fold contains clients satisfying `id % 10 == 0`.

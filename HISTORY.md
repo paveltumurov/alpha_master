@@ -86,6 +86,7 @@
 - The complete validation fold is excluded from validation inputs.
 - Standalone CNN ROC-AUC: `0.533723`.
 - CNN/time-prior/main-model ensemble ROC-AUC: `0.783308`.
+- Public leaderboard ROC-AUC: `0.779497`.
 - Final weights: 2.3% CNN, 1.7% time prior, and 96% main ensemble.
 
 ## Validation Convention

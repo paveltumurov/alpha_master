@@ -10,6 +10,8 @@ from blend import rank_percentile, write_compact_submission
 
 TIME_WINDOW = 200_000
 TIME_SMOOTHING = 20.0
+CNN_VALIDATION_PATH = ARTIFACTS / "id_target_cnn_validation_seed5150.npz"
+CNN_SUBMISSION_PATH = ARTIFACTS / "submission_id_target_cnn_seed5150.csv"
 
 WEIGHTS = {
     "transformer42": 0.147625,
@@ -117,21 +119,46 @@ def main() -> None:
         )
     )
     time_auc = roc_auc_score(validation_targets, validation_time_rank)
+    cnn_ids, cnn_targets, cnn_prediction = load_validation(
+        CNN_VALIDATION_PATH
+    )
+    if not np.array_equal(validation_ids, cnn_ids):
+        raise ValueError("CNN validation ids differ")
+    if not np.array_equal(validation_targets, cnn_targets):
+        raise ValueError("CNN validation targets differ")
+    cnn_rank = rank_percentile(cnn_prediction)
+    cnn_auc = roc_auc_score(validation_targets, cnn_rank)
+
+    best_time_weight = 0.034
+    best_cnn_weight = 0.0
     best_auc = base_auc
-    best_time_weight = 0.0
-    for time_weight in np.linspace(0.0, 0.08, 81):
-        prediction = (
-            (1.0 - time_weight) * validation_blend
-            + time_weight * validation_time_rank
-        )
-        auc = roc_auc_score(validation_targets, prediction)
-        if auc > best_auc:
-            best_auc = auc
-            best_time_weight = float(time_weight)
+    for _ in range(4):
+        for cnn_weight in np.linspace(0.0, 0.08, 81):
+            prediction = (
+                (1.0 - best_time_weight - cnn_weight) * validation_blend
+                + best_time_weight * validation_time_rank
+                + cnn_weight * cnn_rank
+            )
+            auc = roc_auc_score(validation_targets, prediction)
+            if auc > best_auc:
+                best_auc = auc
+                best_cnn_weight = float(cnn_weight)
+        for time_weight in np.linspace(0.0, 0.08, 81):
+            prediction = (
+                (1.0 - time_weight - best_cnn_weight) * validation_blend
+                + time_weight * validation_time_rank
+                + best_cnn_weight * cnn_rank
+            )
+            auc = roc_auc_score(validation_targets, prediction)
+            if auc > best_auc:
+                best_auc = auc
+                best_time_weight = float(time_weight)
     print(f"id time prior ROC-AUC={time_auc:.9f}")
+    print(f"id target CNN ROC-AUC={cnn_auc:.9f}")
     print(
         f"id time blend ROC-AUC={best_auc:.9f}, "
-        f"time_weight={best_time_weight:.3f}"
+        f"time_weight={best_time_weight:.3f}, "
+        f"cnn_weight={best_cnn_weight:.3f}"
     )
 
     sample_ids = pl.read_csv(
@@ -150,11 +177,16 @@ def main() -> None:
     test_time_rank = rank_percentile(
         id_time_prior(train_ids, train_targets, sample_ids)
     )
+    cnn_submission = pl.read_csv(CNN_SUBMISSION_PATH)
+    if not np.array_equal(cnn_submission["id"].to_numpy(), sample_ids):
+        raise ValueError("CNN submission order differs from sample")
+    test_cnn_rank = rank_percentile(cnn_submission["flag"].to_numpy())
     final_prediction = (
-        (1.0 - best_time_weight) * test_blend
+        (1.0 - best_time_weight - best_cnn_weight) * test_blend
         + best_time_weight * test_time_rank
+        + best_cnn_weight * test_cnn_rank
     )
-    output = ARTIFACTS / "submission_id_time_blend.csv"
+    output = ARTIFACTS / "submission_id_target_cnn_blend.csv"
     write_compact_submission(sample_ids, final_prediction, output)
     print(f"Saved {output}")
 

@@ -78,6 +78,16 @@
 - Final ensemble ROC-AUC: `0.783245`.
 - Final time-prior weight: 3.4%.
 
+## Stage 9: ID Target CNN
+
+- Dilated 1D-CNN trained only on multi-scale target-rate sequences ordered by
+  `id`; no credit-history features are used.
+- Each training object's own target is removed from its input.
+- The complete validation fold is excluded from validation inputs.
+- Standalone CNN ROC-AUC: `0.533723`.
+- CNN/time-prior/main-model ensemble ROC-AUC: `0.783308`.
+- Final weights: 2.3% CNN, 1.7% time prior, and 96% main ensemble.
+
 ## Validation Convention
 
 The main validation fold contains clients satisfying `id % 10 == 0`.

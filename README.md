@@ -76,6 +76,14 @@ python blend_hybrid.py
 python blend_multiseed.py
 ```
 
+Дополнительные тренды, соседние изменения, платежные переходы и признаки
+по типам кредита:
+
+```powershell
+python engineered_features.py smoke
+python engineered_model.py all
+```
+
 Результаты сохраняются в `artifacts/`:
 
 - `metrics.json` — локальные метрики;

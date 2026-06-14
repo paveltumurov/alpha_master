@@ -45,6 +45,15 @@
 - Three-seed rank ensemble ROC-AUC: `0.781449`.
 - Final seed/hybrid/advanced ensemble ROC-AUC: `0.782113`.
 
+## Stage 6: Sequential Feature Engineering
+
+- Previous-credit values and last/first deltas.
+- Trends, total variation, and change counts over `rn`.
+- Payment-state transitions and dispersion.
+- Loans since the latest serious overdue event.
+- Utilization and overdue aggregates by credit type.
+- Local one-shard A/B: `0.737239` advanced vs `0.737711` combined.
+
 ## Validation Convention
 
 The main validation fold contains clients satisfying `id % 10 == 0`.

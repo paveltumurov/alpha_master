@@ -17,6 +17,10 @@ BIN_COUNT = 129
 HALF_BINS = BIN_COUNT // 2
 
 
+def run_name(args: argparse.Namespace) -> str:
+    return args.run_name or f"id_target_cnn_seed{args.seed}"
+
+
 def write_compact_submission(
     ids: np.ndarray,
     prediction: np.ndarray,
@@ -223,10 +227,9 @@ def train(args: argparse.Namespace) -> None:
     loss_function = nn.BCEWithLogitsLoss(
         pos_weight=torch.tensor(args.pos_weight, device="cuda")
     )
-    checkpoint_path = ARTIFACTS / f"id_target_cnn_seed{args.seed}.pt"
-    validation_path = (
-        ARTIFACTS / f"id_target_cnn_validation_seed{args.seed}.npz"
-    )
+    name = run_name(args)
+    checkpoint_path = ARTIFACTS / f"{name}.pt"
+    validation_path = ARTIFACTS / f"{name}_validation.npz"
     best_auc = -1.0
     patience_left = args.patience
 
@@ -313,7 +316,7 @@ def predict(args: argparse.Namespace) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable")
     checkpoint = torch.load(
-        ARTIFACTS / f"id_target_cnn_seed{args.seed}.pt",
+        ARTIFACTS / f"{run_name(args)}.pt",
         map_location="cuda",
         weights_only=False,
     )
@@ -340,7 +343,7 @@ def predict(args: argparse.Namespace) -> None:
         base_rate,
         args.predict_batch_size,
     )
-    output = ARTIFACTS / f"submission_id_target_cnn_seed{args.seed}.csv"
+    output = ARTIFACTS / f"submission_{run_name(args)}.csv"
     write_compact_submission(sample_ids, prediction, output)
     print(f"Saved {output}")
 
@@ -364,11 +367,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight-decay", type=float, default=2e-4)
     parser.add_argument("--pos-weight", type=float, default=4.0)
     parser.add_argument("--seed", type=int, default=5150)
+    parser.add_argument("--scale-multiplier", type=float, default=1.0)
+    parser.add_argument("--run-name")
     return parser.parse_args()
 
 
 def main() -> None:
+    global BIN_WIDTHS
     args = parse_args()
+    BIN_WIDTHS = tuple(
+        max(4, int(round(width * args.scale_multiplier)))
+        for width in BIN_WIDTHS
+    )
     if args.stage in {"train", "all"}:
         train(args)
     if args.stage in {"predict", "all"}:

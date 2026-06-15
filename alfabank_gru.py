@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import gc
+import json
 import math
 import random
 from pathlib import Path
@@ -17,11 +18,10 @@ from torch.utils.data import DataLoader
 from gru_sequence import ranking_loss
 from neural import (
     NEURAL_DIR,
+    ROOT,
     SAMPLE_SUBMISSION,
     ArrayDataset,
-    load_metadata,
     seed_everything,
-    shard_paths,
 )
 
 
@@ -68,6 +68,27 @@ class FieldEmbeddings(nn.Module):
         return self.projection(torch.cat(embedded, dim=-1))
 
 
+class TemporalResidualBlock(nn.Module):
+    def __init__(self, channels: int, dilation: int, dropout: float) -> None:
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv1d(
+                channels,
+                channels * 2,
+                kernel_size=3,
+                padding=dilation,
+                dilation=dilation,
+            ),
+            nn.GLU(dim=1),
+            nn.BatchNorm1d(channels),
+            nn.Dropout(dropout),
+            nn.Conv1d(channels, channels, kernel_size=1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.block(x)
+
+
 class AlfaCreditGRU(nn.Module):
     def __init__(
         self,
@@ -78,6 +99,8 @@ class AlfaCreditGRU(nn.Module):
         hidden_size: int,
         layers: int,
         dropout: float,
+        architecture: str,
+        tcn_channels: int,
     ) -> None:
         super().__init__()
         self.fields = FieldEmbeddings(
@@ -87,6 +110,15 @@ class AlfaCreditGRU(nn.Module):
             dropout,
         )
         self.position = nn.Embedding(max_len, input_dim)
+        self.tcn = None
+        if architecture == "tcn_gru":
+            self.tcn = nn.Sequential(
+                nn.Conv1d(input_dim, tcn_channels, kernel_size=1),
+                *[
+                    TemporalResidualBlock(tcn_channels, dilation, dropout)
+                    for dilation in (1, 2, 4, 8, 16)
+                ],
+            )
         self.gru = nn.GRU(
             input_size=input_dim,
             hidden_size=hidden_size,
@@ -103,6 +135,8 @@ class AlfaCreditGRU(nn.Module):
             nn.Linear(hidden_size, 1, bias=False),
         )
         pooled_dim = input_dim * 2 + recurrent_dim * 4
+        if self.tcn is not None:
+            pooled_dim += tcn_channels * 2
         self.head = nn.Sequential(
             nn.Linear(pooled_dim, recurrent_dim * 2),
             nn.LayerNorm(recurrent_dim * 2),
@@ -144,6 +178,15 @@ class AlfaCreditGRU(nn.Module):
             ~valid_float,
             -1e4,
         ).max(dim=1).values
+        tcn_pools: list[torch.Tensor] = []
+        if self.tcn is not None:
+            temporal = self.tcn(embedded.transpose(1, 2)).transpose(1, 2)
+            temporal_mean = (temporal * valid_float).sum(dim=1) / denominator
+            temporal_max = temporal.masked_fill(
+                ~valid_float,
+                -1e4,
+            ).max(dim=1).values
+            tcn_pools = [temporal_mean, temporal_max]
 
         attention_score = self.attention(output).squeeze(-1)
         attention_score = attention_score.masked_fill(~valid, -1e4)
@@ -164,6 +207,7 @@ class AlfaCreditGRU(nn.Module):
                 output_mean,
                 output_max,
                 final_pool,
+                *tcn_pools,
             ],
             dim=1,
         )
@@ -179,7 +223,34 @@ def make_model(metadata: dict, args: argparse.Namespace) -> AlfaCreditGRU:
         hidden_size=args.hidden_size,
         layers=args.layers,
         dropout=args.dropout,
+        architecture=getattr(args, "architecture", "gru"),
+        tcn_channels=getattr(args, "tcn_channels", 128),
     )
+
+
+def experiment_dir(args: argparse.Namespace) -> Path:
+    return ROOT / args.artifact_dir
+
+
+def load_experiment_metadata(args: argparse.Namespace) -> dict:
+    return json.loads(
+        (experiment_dir(args) / "metadata.json").read_text(encoding="utf-8")
+    )
+
+
+def experiment_shard_paths(
+    split: str,
+    count: int,
+    args: argparse.Namespace,
+) -> list[Path]:
+    root = experiment_dir(args) / f"{split}_sequences"
+    return [root / f"shard_{index:02d}" for index in range(count)]
+
+
+def experiment_name(args: argparse.Namespace) -> str:
+    if args.run_name:
+        return args.run_name
+    return f"alfa_gru_seed{args.seed}"
 
 
 def training_steps(paths: list[Path], batch_size: int) -> int:
@@ -236,10 +307,26 @@ def train(args: argparse.Namespace) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable")
     seed_everything(args.seed)
-    metadata = load_metadata()
-    paths = shard_paths("train", metadata["partitions"])
+    metadata = load_experiment_metadata(args)
+    paths = experiment_shard_paths(
+        "train",
+        metadata["partitions"],
+        args,
+    )
     device = torch.device("cuda")
     model = make_model(metadata, args).to(device)
+    if args.pretrained_path:
+        pretrained = torch.load(
+            args.pretrained_path,
+            map_location=device,
+            weights_only=False,
+        )
+        state = pretrained.get("model", pretrained)
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        print(
+            f"Loaded pretrained backbone from {args.pretrained_path}; "
+            f"missing={len(missing)}, unexpected={len(unexpected)}"
+        )
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=args.max_learning_rate,
@@ -260,8 +347,10 @@ def train(args: argparse.Namespace) -> None:
     classification_loss = nn.BCEWithLogitsLoss(
         pos_weight=torch.tensor(args.pos_weight, device=device)
     )
-    checkpoint_path = NEURAL_DIR / f"alfa_gru_seed{args.seed}.pt"
-    validation_path = NEURAL_DIR / f"alfa_gru_validation_seed{args.seed}.npz"
+    output_dir = experiment_dir(args)
+    run_name = experiment_name(args)
+    checkpoint_path = output_dir / f"{run_name}.pt"
+    validation_path = output_dir / f"{run_name}_validation.npz"
     best_auc = -1.0
     patience_left = args.patience
 
@@ -323,6 +412,23 @@ def train(args: argparse.Namespace) -> None:
 
         auc, ids, targets, predictions = validate(model, paths, device, args)
         print(f"epoch {epoch}: validation ROC-AUC={auc:.8f}")
+        if args.save_snapshots:
+            np.savez(
+                output_dir / f"{run_name}_epoch{epoch}_validation.npz",
+                id=ids,
+                target=targets,
+                prediction=predictions,
+            )
+            torch.save(
+                {
+                    "model": model.state_dict(),
+                    "auc": auc,
+                    "epoch": epoch,
+                    "args": vars(args),
+                    "metadata": metadata,
+                },
+                output_dir / f"{run_name}_epoch{epoch}.pt",
+            )
         if auc > best_auc:
             best_auc = auc
             patience_left = args.patience
@@ -354,8 +460,15 @@ def train(args: argparse.Namespace) -> None:
 def predict(args: argparse.Namespace) -> None:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA is unavailable")
+    output_dir = experiment_dir(args)
+    run_name = experiment_name(args)
+    checkpoint_path = (
+        Path(args.checkpoint_path)
+        if args.checkpoint_path
+        else output_dir / f"{run_name}.pt"
+    )
     checkpoint = torch.load(
-        NEURAL_DIR / f"alfa_gru_seed{args.seed}.pt",
+        checkpoint_path,
         map_location="cuda",
         weights_only=False,
     )
@@ -367,7 +480,7 @@ def predict(args: argparse.Namespace) -> None:
     prediction_by_id: dict[int, float] = {}
 
     for number, prefix in enumerate(
-        shard_paths("test", metadata["partitions"]),
+        experiment_shard_paths("test", metadata["partitions"], saved_args),
         start=1,
     ):
         x = np.load(f"{prefix}_x.npy", mmap_mode="r")
@@ -397,7 +510,8 @@ def predict(args: argparse.Namespace) -> None:
         gc.collect()
         print(f"test shard {number}/{metadata['partitions']}")
 
-    output = NEURAL_DIR / f"submission_alfa_gru_seed{args.seed}.csv"
+    output_name = args.output_name or run_name
+    output = output_dir / f"submission_{output_name}.csv"
     with (
         open(SAMPLE_SUBMISSION, encoding="utf-8-sig", newline="") as source,
         output.open("w", encoding="ascii", newline="\n") as destination,
@@ -434,6 +548,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-dim", type=int, default=192)
     parser.add_argument("--hidden-size", type=int, default=160)
     parser.add_argument("--layers", type=int, default=2)
+    parser.add_argument(
+        "--architecture",
+        choices=("gru", "tcn_gru"),
+        default="gru",
+    )
+    parser.add_argument("--tcn-channels", type=int, default=128)
     parser.add_argument("--dropout", type=float, default=0.15)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--patience", type=int, default=3)
@@ -443,6 +563,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pos-weight", type=float, default=4.0)
     parser.add_argument("--rank-weight", type=float, default=0.15)
     parser.add_argument("--seed", type=int, default=777)
+    parser.add_argument("--artifact-dir", default=NEURAL_DIR.name)
+    parser.add_argument("--run-name")
+    parser.add_argument("--save-snapshots", action="store_true")
+    parser.add_argument("--pretrained-path")
+    parser.add_argument("--checkpoint-path")
+    parser.add_argument("--output-name")
     return parser.parse_args()
 
 

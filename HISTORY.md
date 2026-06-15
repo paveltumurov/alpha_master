@@ -112,6 +112,20 @@
 - Final weights: 21.41% seed `777`, 28.04% seed `137`, 27.53% seed `2026`,
   19.24% previous ensemble, 2.57% target CNN, and 1.21% time prior.
 
+## Stage 12: Long Context, TCN, and Self-Supervised Pretraining
+
+- Alfa-style GRU over the last 64 credits with per-epoch snapshots.
+- A parallel dilated TCN branch for local transitions between credits.
+- Masked-field pretraining on unlabeled train and test credit histories.
+- Fine-tuning of the pretrained field embeddings and recurrent backbone.
+- Additional target CNN models with narrow and wide `id` neighborhoods.
+- GRU-64 standalone ROC-AUC: `0.782686`.
+- TCN+GRU standalone ROC-AUC: `0.782910`.
+- Pretrained GRU-64 standalone ROC-AUC: `0.783683`.
+- Final constrained stacking ROC-AUC: `0.788513`.
+- Final stack: 24.97% previous ensemble, 10.23% GRU-64 epoch 9,
+  34.27% TCN+GRU, 26.69% pretrained GRU-64, and 3.83% local target CNN.
+
 ## Validation Convention
 
 The main validation fold contains clients satisfying `id % 10 == 0`.

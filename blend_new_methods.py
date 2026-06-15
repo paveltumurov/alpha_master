@@ -12,6 +12,11 @@ TIME_WINDOW = 200_000
 TIME_SMOOTHING = 20.0
 CNN_VALIDATION_PATH = ARTIFACTS / "id_target_cnn_validation_seed5150.npz"
 CNN_SUBMISSION_PATH = ARTIFACTS / "submission_id_target_cnn_seed5150.csv"
+ALFA_GRU_VALIDATION_PATH = ARTIFACTS / "alfa_gru_validation_seed777.npz"
+ALFA_GRU_SUBMISSION_PATH = ARTIFACTS / "submission_alfa_gru_seed777.csv"
+FINAL_TIME_WEIGHT = 0.0156
+FINAL_CNN_WEIGHT = 0.0226
+FINAL_ALFA_GRU_WEIGHT = 0.4566
 
 WEIGHTS = {
     "transformer42": 0.147625,
@@ -129,36 +134,40 @@ def main() -> None:
     cnn_rank = rank_percentile(cnn_prediction)
     cnn_auc = roc_auc_score(validation_targets, cnn_rank)
 
-    best_time_weight = 0.034
-    best_cnn_weight = 0.0
-    best_auc = base_auc
-    for _ in range(4):
-        for cnn_weight in np.linspace(0.0, 0.08, 81):
-            prediction = (
-                (1.0 - best_time_weight - cnn_weight) * validation_blend
-                + best_time_weight * validation_time_rank
-                + cnn_weight * cnn_rank
-            )
-            auc = roc_auc_score(validation_targets, prediction)
-            if auc > best_auc:
-                best_auc = auc
-                best_cnn_weight = float(cnn_weight)
-        for time_weight in np.linspace(0.0, 0.08, 81):
-            prediction = (
-                (1.0 - time_weight - best_cnn_weight) * validation_blend
-                + time_weight * validation_time_rank
-                + best_cnn_weight * cnn_rank
-            )
-            auc = roc_auc_score(validation_targets, prediction)
-            if auc > best_auc:
-                best_auc = auc
-                best_time_weight = float(time_weight)
+    alfa_ids, alfa_targets, alfa_prediction = load_validation(
+        ALFA_GRU_VALIDATION_PATH
+    )
+    if not np.array_equal(validation_ids, alfa_ids):
+        raise ValueError("Alfa GRU validation ids differ")
+    if not np.array_equal(validation_targets, alfa_targets):
+        raise ValueError("Alfa GRU validation targets differ")
+    alfa_rank = rank_percentile(alfa_prediction)
+    alfa_auc = roc_auc_score(validation_targets, alfa_rank)
+    main_weight = (
+        1.0
+        - FINAL_TIME_WEIGHT
+        - FINAL_CNN_WEIGHT
+        - FINAL_ALFA_GRU_WEIGHT
+    )
+    final_validation_prediction = (
+        main_weight * validation_blend
+        + FINAL_TIME_WEIGHT * validation_time_rank
+        + FINAL_CNN_WEIGHT * cnn_rank
+        + FINAL_ALFA_GRU_WEIGHT * alfa_rank
+    )
+    best_auc = roc_auc_score(
+        validation_targets,
+        final_validation_prediction,
+    )
     print(f"id time prior ROC-AUC={time_auc:.9f}")
     print(f"id target CNN ROC-AUC={cnn_auc:.9f}")
+    print(f"Alfa-style GRU ROC-AUC={alfa_auc:.9f}")
     print(
-        f"id time blend ROC-AUC={best_auc:.9f}, "
-        f"time_weight={best_time_weight:.3f}, "
-        f"cnn_weight={best_cnn_weight:.3f}"
+        f"final blend ROC-AUC={best_auc:.9f}, "
+        f"main_weight={main_weight:.4f}, "
+        f"time_weight={FINAL_TIME_WEIGHT:.4f}, "
+        f"cnn_weight={FINAL_CNN_WEIGHT:.4f}, "
+        f"alfa_gru_weight={FINAL_ALFA_GRU_WEIGHT:.4f}"
     )
 
     sample_ids = pl.read_csv(
@@ -181,12 +190,17 @@ def main() -> None:
     if not np.array_equal(cnn_submission["id"].to_numpy(), sample_ids):
         raise ValueError("CNN submission order differs from sample")
     test_cnn_rank = rank_percentile(cnn_submission["flag"].to_numpy())
+    alfa_submission = pl.read_csv(ALFA_GRU_SUBMISSION_PATH)
+    if not np.array_equal(alfa_submission["id"].to_numpy(), sample_ids):
+        raise ValueError("Alfa GRU submission order differs from sample")
+    test_alfa_rank = rank_percentile(alfa_submission["flag"].to_numpy())
     final_prediction = (
-        (1.0 - best_time_weight - best_cnn_weight) * test_blend
-        + best_time_weight * test_time_rank
-        + best_cnn_weight * test_cnn_rank
+        main_weight * test_blend
+        + FINAL_TIME_WEIGHT * test_time_rank
+        + FINAL_CNN_WEIGHT * test_cnn_rank
+        + FINAL_ALFA_GRU_WEIGHT * test_alfa_rank
     )
-    output = ARTIFACTS / "submission_id_target_cnn_blend.csv"
+    output = ARTIFACTS / "submission_alfa_gru_blend.csv"
     write_compact_submission(sample_ids, final_prediction, output)
     print(f"Saved {output}")
 

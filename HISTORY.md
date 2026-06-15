@@ -89,6 +89,18 @@
 - Public leaderboard ROC-AUC: `0.779497`.
 - Final weights: 2.3% CNN, 1.7% time prior, and 96% main ensemble.
 
+## Stage 10: Alfa-Style Field-Embedding GRU
+
+- A separate adaptive embedding layer for every credit-history field.
+- Concatenated field embeddings projected to a shared event representation.
+- Bidirectional GRU with attention, mean, max, and final-state pooling.
+- Additional mean and max pooling over the input event embeddings.
+- OneCycle learning-rate schedule and pairwise ranking loss.
+- Standalone validation ROC-AUC: `0.782730`.
+- Final ensemble validation ROC-AUC: `0.785597`.
+- Final weights: 45.66% Alfa-style GRU, 50.52% previous model ensemble,
+  2.26% target CNN, and 1.56% time prior.
+
 ## Validation Convention
 
 The main validation fold contains clients satisfying `id % 10 == 0`.

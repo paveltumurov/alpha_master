@@ -98,6 +98,7 @@
 - OneCycle learning-rate schedule and pairwise ranking loss.
 - Standalone validation ROC-AUC: `0.782730`.
 - Final ensemble validation ROC-AUC: `0.785597`.
+- Public leaderboard ROC-AUC: `0.781945`.
 - Final weights: 45.66% Alfa-style GRU, 50.52% previous model ensemble,
   2.26% target CNN, and 1.56% time prior.
 

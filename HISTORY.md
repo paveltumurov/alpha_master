@@ -102,6 +102,15 @@
 - Final weights: 45.66% Alfa-style GRU, 50.52% previous model ensemble,
   2.26% target CNN, and 1.56% time prior.
 
+## Stage 11: Alfa GRU Multi-Seed Ensemble
+
+- Additional Alfa-style GRU models with seeds `137` and `2026`.
+- Standalone validation ROC-AUC: `0.783373` for seed `137` and `0.783530`
+  for seed `2026`.
+- Three-seed Alfa GRU and previous-model ensemble ROC-AUC: `0.787455`.
+- Final weights: 21.41% seed `777`, 28.04% seed `137`, 27.53% seed `2026`,
+  19.24% previous ensemble, 2.57% target CNN, and 1.21% time prior.
+
 ## Validation Convention
 
 The main validation fold contains clients satisfying `id % 10 == 0`.

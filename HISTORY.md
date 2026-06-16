@@ -132,6 +132,7 @@
   submission.
 - Best local blend: 70% Stage 12 and 30% Stage 11.
 - Local validation ROC-AUC: `0.788690`.
+- Public leaderboard ROC-AUC: `0.785021`.
 - Output: `submission_conservative_70_30.csv`.
 
 ## Validation Convention

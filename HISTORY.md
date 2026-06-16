@@ -126,6 +126,14 @@
 - Final stack: 24.97% previous ensemble, 10.23% GRU-64 epoch 9,
   34.27% TCN+GRU, 26.69% pretrained GRU-64, and 3.83% local target CNN.
 
+## Stage 13: Conservative Public-Aware Blend
+
+- Blended the Stage 12 final stack with the public-tested Stage 11 multiseed
+  submission.
+- Best local blend: 70% Stage 12 and 30% Stage 11.
+- Local validation ROC-AUC: `0.788690`.
+- Output: `submission_conservative_70_30.csv`.
+
 ## Validation Convention
 
 The main validation fold contains clients satisfying `id % 10 == 0`.

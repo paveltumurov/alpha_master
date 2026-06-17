@@ -15,6 +15,20 @@ neural_artifacts/
 *.npz
 *.pt
 
+# Older exploratory scripts kept locally, but not needed for final solution repo
+advanced.py
+blend_advanced.py
+blend_hybrid.py
+blend_multiseed.py
+blend_neural.py
+catboost_model.py
+engineered_features.py
+engineered_model.py
+enhanced.py
+hybrid.py
+transformer64.py
+SERVER.md
+
 # Python
 __pycache__/
 *.py[cod]

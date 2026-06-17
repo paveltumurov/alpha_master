@@ -1,69 +1,69 @@
-# Alpha Master Credit Scoring
+# Alpha Master: кредитный скоринг
 
-Final solution for the Alfa Bank credit scoring competition.
+Финальное решение задачи кредитного скоринга Альфа-Банка.
 
-Public leaderboard ROC-AUC: `0.785021`.
+Public ROC-AUC: `0.785021`.
 
-Final submission file: `submission.csv`.
+Финальный файл для отправки: `submission.csv`.
 
-## Method
+## Главная идея
 
-The key idea is to treat each client as a sequence of credit events, not as one flat row.
-
-```text
-client id -> credit 1 -> credit 2 -> ... -> credit N -> default probability
-```
-
-The strongest single family of models is an Alfa-style GRU:
+Данные рассматриваются не только как обычная таблица, а как история кредитов клиента:
 
 ```text
-categorical fields -> field embeddings -> credit vector -> BiGRU -> pooling -> MLP -> prediction
+client id -> кредит 1 -> кредит 2 -> ... -> кредит N -> вероятность дефолта
 ```
 
-The final result is an ensemble of several sequence models and auxiliary signals:
-
-- Alfa-style GRU over credit histories;
-- multi-seed GRU ensemble;
-- TCN+GRU sequence model;
-- GRU initialized from masked-field pretraining;
-- local CNN signal over ordered `id`;
-- conservative final blend.
-
-## Repository Layout
-
-Main final-solution scripts:
+Основной прирост дала нейросеть по последовательности кредитов:
 
 ```text
-neural.py              builds sequence datasets from parquet files
-alfabank_gru.py        main field-embedding GRU model
-masked_pretrain.py     self-supervised masked-field pretraining
-id_target_cnn.py       CNN over local target-rate features around id
-final_stacking.py      final local model stacking
-conservative_blends.py final conservative blend
+категориальные признаки -> embeddings -> вектор кредита -> BiGRU -> pooling -> MLP -> prediction
 ```
 
-Required helper modules:
+Финальный результат получен ансамблем нескольких моделей:
+
+- Alfa-style GRU по последовательности кредитов;
+- несколько GRU-моделей с разными seed;
+- TCN+GRU;
+- GRU после masked-field pretraining;
+- небольшой CNN-сигнал по порядку `id`;
+- финальный conservative blend.
+
+## Что лежит в репозитории
+
+Основные файлы финального решения:
 
 ```text
-baseline.py            shared paths and baseline utilities
-blend.py               rank normalization and compact CSV writer
-blend_new_methods.py   validation loading and id-prior utilities
-gru_sequence.py        ranking loss used by GRU training
+neural.py              подготовка sequence-датасета из parquet
+alfabank_gru.py        основная GRU-модель по истории кредитов
+masked_pretrain.py     self-supervised pretraining на восстановление признаков
+id_target_cnn.py       CNN по локальным target-rate признакам вокруг id
+final_stacking.py      сборка финального локального ансамбля
+conservative_blends.py финальный осторожный blend
 ```
 
-Project helpers:
+Вспомогательные модули, которые нужны финальным скриптам:
 
 ```text
-scripts/check_inputs.sh  checks that competition files exist
-scripts/run_final.sh     documents the final reproducible pipeline
-docs/structure.md        short project structure notes
-SOLUTION.md              final solution summary
-HISTORY.md               experiment history and scores
+baseline.py            общие пути к данным и artifacts
+blend.py               rank-normalization и compact submission writer
+blend_new_methods.py   загрузка validation-предсказаний и id-prior
+gru_sequence.py        ranking loss для GRU
 ```
 
-## Input Data
+Документация и запуск:
 
-Put the competition files in the repository root:
+```text
+SOLUTION.md              краткое описание финального решения
+HISTORY.md               история экспериментов и метрик
+docs/structure.md        структура проекта
+scripts/check_inputs.sh  проверка входных файлов
+scripts/run_final.sh     документированный порядок запуска
+```
+
+## Данные
+
+В корне проекта должны лежать файлы соревнования:
 
 ```text
 train_data.parquet
@@ -72,38 +72,43 @@ train_target.csv
 sample_submission (1).csv
 ```
 
-Large input files, model checkpoints, caches, and submissions are intentionally not tracked by git.
+Эти файлы не хранятся в git, потому что они большие. Также в git не входят:
 
-## Installation
+```text
+artifacts/
+neural_artifacts/
+submission.csv
+*.pt
+*.npy
+*.npz
+```
 
-CPU dependencies:
+## Установка
+
+CPU-зависимости:
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-Neural experiments require PyTorch with CUDA. On a GPU server:
+Для нейросетевых запусков нужен PyTorch с CUDA:
 
 ```bash
 python -m pip install -r requirements-neural.txt
 python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
 ```
 
-## Pipeline
-
-Check inputs:
-
-```bash
-bash scripts/check_inputs.sh
-```
-
-Prepare sequence shards:
+## Подготовка sequence-данных
 
 ```bash
 python neural.py prepare --max-len 64 --partitions 32
 ```
 
-Train one Alfa-style GRU:
+После этого создается `neural_artifacts/` с sequence-shard файлами и `metadata.json`.
+
+## Обучение моделей
+
+Одна Alfa-style GRU:
 
 ```bash
 python alfabank_gru.py all \
@@ -112,7 +117,7 @@ python alfabank_gru.py all \
   --seed 777
 ```
 
-Train TCN+GRU:
+TCN+GRU:
 
 ```bash
 python alfabank_gru.py all \
@@ -122,7 +127,7 @@ python alfabank_gru.py all \
   --seed 4242
 ```
 
-Run masked-field pretraining:
+Masked-field pretraining:
 
 ```bash
 python masked_pretrain.py \
@@ -130,7 +135,7 @@ python masked_pretrain.py \
   --output-name alfa_masked_pretrained.pt
 ```
 
-Fine-tune from pretrained weights:
+Fine-tuning после pretraining:
 
 ```bash
 python alfabank_gru.py all \
@@ -140,67 +145,58 @@ python alfabank_gru.py all \
   --seed 9001
 ```
 
-Train the id-based CNN:
+ID Target CNN:
 
 ```bash
 python id_target_cnn.py all --run-name id_target_cnn_local_seed111 --seed 111
 ```
 
-Build the final local stack:
+## Финальный ансамбль
+
+Когда нужные validation-предсказания и submission-файлы уже лежат в `artifacts/`, запускается:
 
 ```bash
 python final_stacking.py
-```
-
-Build conservative blends:
-
-```bash
 python conservative_blends.py
 ```
 
-The selected final file is:
+Выбранный финальный файл:
 
 ```text
 artifacts/submission_conservative_70_30.csv
 ```
 
-It is copied to:
+Он копируется в:
 
 ```text
 submission.csv
 ```
 
-## One-Command Entrypoint
-
-The repository also contains a documented wrapper:
-
-```bash
-bash scripts/run_final.sh
-```
-
-It shows the intended end-to-end order. Full retraining is expensive and assumes that all intermediate model predictions listed in `HISTORY.md` are regenerated or already present in `artifacts/`.
-
-## Validation
-
-The main validation split is stable across experiments:
-
-```text
-id % 10 == 0  -> validation
-id % 10 != 0  -> train
-```
-
-Metric: ROC-AUC.
-
-## Final Blend
-
-The submitted file is a conservative blend:
+Финальный blend:
 
 ```text
 70% final_stacking
 30% Alfa GRU multiseed ensemble
 ```
 
-Public leaderboard ROC-AUC:
+## Важное про воспроизводимость
+
+Полное переобучение финального решения долгое и требует GPU. Кроме того, `final_stacking.py` ожидает, что промежуточные предсказания уже есть в `artifacts/`.
+
+Поэтому `scripts/run_final.sh` — это не магическая кнопка “быстро получить финальный скор”, а документированный порядок запуска основных этапов. История того, какие модели участвовали в финальном ансамбле, записана в `HISTORY.md`.
+
+## Валидация
+
+Во всех основных экспериментах использовалось стабильное разбиение:
+
+```text
+id % 10 == 0  -> validation
+id % 10 != 0  -> train
+```
+
+Метрика: ROC-AUC.
+
+Итоговый public ROC-AUC:
 
 ```text
 0.785021

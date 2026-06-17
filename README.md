@@ -1,95 +1,205 @@
-# Credit scoring baseline
+# Alpha Master: Credit Scoring
 
-Потоковый baseline для компьютера с 8 ГБ RAM:
+Решение задачи кредитного скоринга по истории кредитов клиента.
 
-1. Кредитная история агрегируется до одной строки на `id`.
-2. Для каждого исходного признака считаются `mean` и `max`.
-3. LightGBM обучается с валидацией по стабильному хешу `id`.
-4. Дополнительно измеряется ROC-AUC на последних 10% `id`.
+Финальный public ROC-AUC: `0.785021`.
 
-Установка:
+Финальный файл для отправки: `submission.csv`.
 
-```powershell
+## Идея решения
+
+Исходные данные рассматриваются не просто как плоская таблица, а как последовательность кредитных событий клиента:
+
+```text
+client id -> credit 1 -> credit 2 -> ... -> credit N -> probability of default
+```
+
+Основной прирост дала нейросеть Alfa-style GRU:
+
+```text
+categorical fields -> field embeddings -> credit vector -> BiGRU -> pooling -> MLP -> prediction
+```
+
+Финальный результат получен не одной моделью, а ансамблем:
+
+- Alfa-style GRU по последовательности кредитов;
+- несколько seed одной GRU-архитектуры;
+- TCN+GRU вариант;
+- GRU после masked-field pretraining;
+- небольшой CNN-сигнал по порядку `id`;
+- финальный conservative blend.
+
+## Основные файлы
+
+```text
+neural.py              подготовка sequence-датасета из parquet
+alfabank_gru.py        основная GRU-модель по истории кредитов
+masked_pretrain.py     self-supervised pretraining на восстановление признаков
+id_target_cnn.py       CNN по локальным target-rate признакам вокруг id
+final_stacking.py      сборка финального локального ансамбля
+conservative_blends.py финальный осторожный blend для submission
+```
+
+Вспомогательные файлы:
+
+```text
+baseline.py            пути к данным и старый baseline-код
+blend.py               rank-percentile и запись compact submission
+blend_new_methods.py   загрузка validation-предсказаний и id-prior
+gru_sequence.py        ranking loss для GRU
+```
+
+Документация:
+
+```text
+SOLUTION.md            краткое описание финального решения
+HISTORY.md             история экспериментов и метрик
+```
+
+## Данные
+
+В корне проекта должны лежать файлы соревнования:
+
+```text
+train_data.parquet
+test_data.parquet
+train_target.csv
+sample_submission (1).csv
+```
+
+Эти файлы не хранятся в git, потому что они большие.
+
+## Установка
+
+Для CPU-части:
+
+```bash
 python -m pip install -r requirements.txt
 ```
 
-Полный запуск:
+Для нейросетевых экспериментов нужен PyTorch с CUDA. На GPU-сервере обычно достаточно:
 
-```powershell
-python baseline.py all
+```bash
+python -m pip install -r requirements-neural.txt
 ```
 
-При первом запуске исходные строки распределяются по 32 дисковым
-корзинам по остатку от деления `id`. Затем каждая небольшая корзина
-агрегируется независимо. Промежуточные данные кэшируются в `artifacts/`.
+Если PyTorch не установлен:
 
-Этапы можно запускать отдельно:
-
-```powershell
-python baseline.py aggregate
-python baseline.py train
-python baseline.py predict
+```bash
+python -m pip install torch --index-url https://download.pytorch.org/whl/cu121
 ```
 
-Улучшенная версия с признаками последнего кредита, последних трёх
-продуктов, разбросом ключевых полей, сводками платежей и просрочек:
+## Подготовка последовательностей
 
-```powershell
-python enhanced.py all
+```bash
+python neural.py prepare --max-len 64 --partitions 32
 ```
 
-Она сохраняет отдельные файлы `metrics_enhanced.json`,
-`enhanced_lgbm.txt` и `submission_enhanced.csv`, не перезаписывая baseline.
+Скрипт создаст директорию `neural_artifacts/` с `.npy` shard-файлами:
 
-После обучения обеих моделей можно подобрать rank-ансамбль на том же
-holdout и создать `submission_blend.csv`:
-
-```powershell
-python blend.py
+```text
+train_sequences/
+test_sequences/
+metadata.json
 ```
 
-Третья версия добавляет точные частоты категорий и платежных состояний:
+## Обучение основной GRU
 
-```powershell
-python advanced.py all
+Пример запуска одной Alfa-style GRU:
+
+```bash
+python alfabank_gru.py all \
+  --artifact-dir neural_artifacts \
+  --run-name alfa_gru_seed777 \
+  --seed 777
 ```
 
-Ансамбль baseline, enhanced и advanced:
+Для TCN+GRU:
 
-```powershell
-python blend_advanced.py
+```bash
+python alfabank_gru.py all \
+  --artifact-dir neural_artifacts \
+  --architecture tcn_gru \
+  --run-name alfa_tcn64_seed4242 \
+  --seed 4242
 ```
 
-Нейросетевая модель последовательности кредитов для сервера с NVIDIA P100
-описана в `SERVER.md` и запускается через `neural.py`.
+## Masked Pretraining
 
-После загрузки neural submission и validation predictions:
+Предобучение на восстановление скрытых признаков:
 
-```powershell
-python blend_neural.py
+```bash
+python masked_pretrain.py \
+  --artifact-dir neural_artifacts \
+  --output-name alfa_masked_pretrained.pt
 ```
 
-Hybrid-модель и ансамбль нескольких Transformer seed:
+Fine-tuning GRU с предобученными весами:
 
-```powershell
-python blend_hybrid.py
-python blend_multiseed.py
+```bash
+python alfabank_gru.py all \
+  --artifact-dir neural_artifacts \
+  --pretrained-path neural_artifacts/alfa_masked_pretrained.pt \
+  --run-name alfa_pretrained64_seed9001 \
+  --seed 9001
 ```
 
-Дополнительные тренды, соседние изменения, платежные переходы и признаки
-по типам кредита:
+## ID Target CNN
 
-```powershell
-python engineered_features.py smoke
-python engineered_model.py all
+Дополнительная модель, которая использует локальные target-rate признаки вокруг `id`:
+
+```bash
+python id_target_cnn.py all --run-name id_target_cnn_local_seed111 --seed 111
 ```
 
-Результаты сохраняются в `artifacts/`:
+## Финальный ансамбль
 
-- `metrics.json` — локальные метрики;
-- `baseline_lgbm.txt` — модель;
-- `submission_baseline.csv` — файл для отправки.
+Сборка локального stacking:
 
-Вероятности в submission записываются с точностью до 18 знаков после
-запятой. Конечные и ведущие нули не записываются, чтобы CSV оставался
-меньше ограничения в 25 МБ.
+```bash
+python final_stacking.py
+```
+
+Сборка conservative blend:
+
+```bash
+python conservative_blends.py
+```
+
+Финальный выбранный файл:
+
+```text
+artifacts/submission_conservative_70_30.csv
+```
+
+Для отправки он копируется в:
+
+```text
+submission.csv
+```
+
+## Валидация
+
+Во всех основных экспериментах используется одно и то же разбиение:
+
+```text
+id % 10 == 0  -> validation
+id % 10 != 0  -> train
+```
+
+Метрика: ROC-AUC.
+
+## Итог
+
+Финальный submission является blend-ом:
+
+```text
+70% final_stacking
+30% Alfa GRU multiseed ensemble
+```
+
+Public leaderboard ROC-AUC:
+
+```text
+0.785021
+```
